@@ -1,5 +1,6 @@
 import glob
 import sqlite3
+from datetime import datetime
 
 from Score import Score
 
@@ -8,11 +9,11 @@ class Model:
     def __init__(self):
         self.__database = 'databases/hangman_words_ee.db'
         self.__image_files = glob.glob('images/*.png')
-
-        # TODO juhuslik sõna,
-        # TODO kõik sisestatud tähed
-        # TODO vigade lugeja (s.h. pildi id)
-        # TODO kasutaja leitud tähed (visuaal muidu on seal allkriips _)
+        self.__word = ''
+        self.__letters = []
+        self.__wrong_count = 0
+        self.__correct_letters = []
+        self.__wrong_letters = []
 
     @property
     def database(self):
@@ -21,6 +22,22 @@ class Model:
     @property
     def image_files(self):
         return self.__image_files
+
+    @property
+    def word(self):
+        return self.__word
+
+    @property
+    def correct_letters(self):
+        return self.__correct_letters
+
+    @property
+    def wrong_letters(self):
+        return self.__wrong_letters
+
+    @property
+    def wrong_count(self):
+        return self.__wrong_count
 
     @database.setter
     def database(self, value):
@@ -44,22 +61,63 @@ class Model:
             if connection:
                 connection.close()
 
-    # TODO Meetod mis seadistab uue mängu
-    # TODO Seadistab uue sõna äraarvamiseks
-    # TODO Seadistab mõningate muutujate algväärtused (vaata ___init__ kolme viimast TODO. Neljas muutuja on eelmine rida)
-    # TODO Seadistab ühe muutuja nii et iga tähe asemel paneb allkiriipsu mida näidata aknas äraarvatavas sõnas (LIST)
+    def new_game(self):
+        self.__wrong_count = 0
+        self.__letters = []
+        self.__correct_letters = []
+        self.__wrong_letters = []
+        self.__word = self.random_word()
+        self.__correct_letters = list("_" * len(self.__word))
 
-    # TODO Meetod mis seadistab juhusliku sõna muutujasse
-    # TODO Teeb andmebaasi ühenduse ja pärib sealt ühe juhusliku sõna ning kirjutab selle muutujasse
+    def random_word(self):
+        connection = None
+        try:
+            connection = sqlite3.connect(self.__database)
+            sql = 'SELECT word FROM words ORDER BY RANDOM() LIMIT 1;'
+            cursor = connection.execute(sql)
+            word = cursor.fetchone()[0]
+            cursor.close()
+            return word
+        except sqlite3.Error as error:
+            print(f'Viga andmebaasiga {self.__database} ühendamisel: {error}')
+        finally:
+            if connection:
+                connection.close()
 
-    # TODO kasutaja siestuse kontroll (Vaata COntrolleris btn_send_click esimest TODO)
-    # TODO Kui on midagi sisestatud võta sisestusest esimene märk (me saame sisestada pika teksti aga esimene täht on oluline!)
-    # TODO Kui täht on otsitavas sõnas, siis asneda tulemuses allkriips õige tähega.
-    # TODO kui tähte polnud, siis vigade arv kasvab +1 ning lisa vigane täht eraldi listi
+    def check_user_input(self, text):
+        if text:
+            guess = text[0].strip().lower()
+            self.__letters.append(guess)
+            word_letters = list(self.__word.lower())
+            if guess in word_letters:
+                for index, letter in enumerate(word_letters):
+                    if guess == letter:
+                        self.__correct_letters[index] = guess
+            else:
+                self.__wrong_count += 1
+                if guess in self.__letters and guess not in self.__wrong_letters:
+                    self.__wrong_letters.append(guess)
 
-    # TODO Meetod mis tagastab vigaste tähtede listi asemel tulemuse stringina. ['A', 'B', 'C'] => A, B, C
+    def list_to_string(self, char_list):
+        return ''.join(char_list)
 
-    # TODO Meetod mis lisab mängija ja tema aja andmebaasi (Vaata Controlleris viimast TODO rida)
-    # TODO Võtab hetke/jooksva aja kujul AAAA-KK-PP TT:MM:SS (Y-m-d H:M:S)
-    # TODO Kui kasutaja sisestas nime, siis eemalda algusest ja lõpust tühikud
-    # TODO Tee andmebaasi ühendus ja lisa kirje tabelisse scores. Salvesta andmed tabelis ja sulge ühendus.
+    def save_score(self, name, game_time):
+        name = name.strip()
+        connection = None
+        try:
+            connection = sqlite3.connect(self.__database)
+            today = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            sql = 'INSERT INTO scores (name, word, missing, seconds, date_time) VALUES (?, ?, ?, ?, ?)'
+            connection.execute(sql, (
+                name,
+                self.__word,
+                self.list_to_string(self.__wrong_letters),
+                game_time,
+                today
+            ))
+            connection.commit()
+        except sqlite3.Error as error:
+            print(f'Viga andmebaasiga {self.__database} ühendamisel: {error}')
+        finally:
+            if connection:
+                connection.close()
